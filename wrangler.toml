@@ -1,0 +1,23 @@
+name = "flight-alert-worker"
+main = "src/index.js"
+compatibility_date = "2026-04-17"
+
+[triggers]
+crons = ["0 1,6,11,16,21 * * *"]
+
+[vars]
+RAPIDAPI_HOST = "google-flights2.p.rapidapi.com"
+RAPIDAPI_BASE_URL = "https://google-flights2.p.rapidapi.com/api/v1/searchFlights"
+DEPARTURE_ID = "VIX"
+ARRIVAL_ID = "BSB"
+OUTBOUND_DATE = "2026-08-01"
+TRAVEL_CLASS = "ECONOMY"
+ADULTS = "1"
+SHOW_HIDDEN = "1"
+CURRENCY = "BRL"
+LANGUAGE_CODE = "pt-BR"
+COUNTRY_CODE = "BR"
+SEARCH_TYPE = "best"
+MAX_PRICE_BRL = "500"
+ALERT_RECIPIENT = "renanysbrobows@gmail.com"
+ALERT_SENDER = "Flight Alert <onboarding@resend.dev>"
