@@ -1,8 +1,8 @@
-const buildSearchUrl = (env) => {
+const buildSearchUrl = (env, outboundDate) => {
   const query = new URLSearchParams({
     departure_id: env.DEPARTURE_ID,
     arrival_id: env.ARRIVAL_ID,
-    outbound_date: env.OUTBOUND_DATE,
+    outbound_date: outboundDate,
     travel_class: env.TRAVEL_CLASS,
     adults: env.ADULTS,
     show_hidden: env.SHOW_HIDDEN,
@@ -28,17 +28,25 @@ const formatExecutionDateTime = (value) =>
     timeZone: "America/Sao_Paulo"
   }).format(value);
 
-const getFlightsBelowTarget = (payload, maxPrice) => {
-  const topFlights = payload?.data?.topFlights ?? [];
-  const otherFlights = payload?.data?.otherFlights ?? [];
+const isDirectFlight = (flight) => {
+  const segments = flight?.flights ?? [];
+  const layovers = flight?.layovers;
+  return segments.length === 1 && (layovers == null || layovers.length === 0);
+};
+
+const getFlightsBelowTarget = (payload, maxPrice, searchedDate) => {
+  const itineraries = payload?.data?.itineraries ?? {};
+  const topFlights = itineraries?.topFlights ?? [];
+  const otherFlights = itineraries?.otherFlights ?? [];
 
   return [...topFlights, ...otherFlights]
     .filter(
       (flight) =>
         typeof flight?.price === "number" &&
         flight.price < maxPrice &&
-        flight?.stops === 0
+        isDirectFlight(flight)
     )
+    .map((flight) => ({ ...flight, searchedDate }))
     .sort((a, b) => a.price - b.price);
 };
 
@@ -63,20 +71,20 @@ const buildEmailHtml = (flights, env, now) => {
       const departure = flight?.departure_time ?? "Horário não informado";
       const arrival = flight?.arrival_time ?? "Horário não informado";
       const duration = flight?.duration?.text ?? "Duração não informada";
+      const searchedDate = flight?.searchedDate ?? "Data não informada";
 
-      return `<li><strong>${formatPrice(flight.price)}</strong> - ${company} (${number}) | Saída: ${departure} | Chegada: ${arrival} | Duração: ${duration}</li>`;
+      return `<li><strong>${formatPrice(flight.price)}</strong> - ${company} (${number}) | Data buscada: ${searchedDate} | Saída: ${departure} | Chegada: ${arrival} | Duração: ${duration}</li>`;
     })
     .join("");
 
   return `<h2>Alerta de voo abaixo de ${formatPrice(Number(env.MAX_PRICE_BRL))}</h2>
 <p>Rota: ${env.DEPARTURE_ID} -> ${env.ARRIVAL_ID}</p>
-<p>Data do voo: ${env.OUTBOUND_DATE}</p>
+<p>Datas verificadas: ${env.OUTBOUND_DATE} e ${env.SECOND_OUTBOUND_DATE}</p>
 <p>Execução: ${executionDateTime}</p>
 <ul>${items}</ul>`;
 };
 
 const sendEmailAlert = async (flights, env, now) => {
-  const hasMatches = flights.length > 0;
   const response = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -86,9 +94,7 @@ const sendEmailAlert = async (flights, env, now) => {
     body: JSON.stringify({
       from: env.ALERT_SENDER,
       to: [env.ALERT_RECIPIENT],
-      subject: hasMatches
-        ? `Voo ${env.DEPARTURE_ID} -> ${env.ARRIVAL_ID} abaixo de ${formatPrice(Number(env.MAX_PRICE_BRL))}`
-        : `Nenhum voo ${env.DEPARTURE_ID} -> ${env.ARRIVAL_ID} abaixo de ${formatPrice(Number(env.MAX_PRICE_BRL))}`,
+      subject: `Voo ${env.DEPARTURE_ID} -> ${env.ARRIVAL_ID} abaixo de ${formatPrice(Number(env.MAX_PRICE_BRL))}`,
       html: buildEmailHtml(flights, env, now)
     })
   });
@@ -99,11 +105,8 @@ const sendEmailAlert = async (flights, env, now) => {
   }
 };
 
-const runCheck = async (env) => {
-  const now = new Date();
-  const maxPrice = Number(env.MAX_PRICE_BRL);
-  const url = buildSearchUrl(env);
-
+const fetchFlightsForDate = async (env, outboundDate, maxPrice) => {
+  const url = buildSearchUrl(env, outboundDate);
   const response = await fetch(url, {
     method: "GET",
     headers: {
@@ -119,16 +122,29 @@ const runCheck = async (env) => {
   }
 
   const payload = await response.json();
-  const cheapFlights = getFlightsBelowTarget(payload, maxPrice);
-  await sendEmailAlert(cheapFlights, env, now);
+  return getFlightsBelowTarget(payload, maxPrice, outboundDate);
+};
+
+const runCheck = async (env) => {
+  const now = new Date();
+  const maxPrice = Number(env.MAX_PRICE_BRL);
+  const dates = [env.OUTBOUND_DATE, env.SECOND_OUTBOUND_DATE].filter(Boolean);
+  const flightsPerDate = await Promise.all(
+    dates.map((date) => fetchFlightsForDate(env, date, maxPrice))
+  );
+  const cheapFlights = flightsPerDate
+    .flat()
+    .sort((a, b) => a.price - b.price);
 
   if (cheapFlights.length === 0) {
     return {
-      notified: true,
+      notified: false,
       matches: 0,
       message: `Nenhum voo direto abaixo de ${formatPrice(maxPrice)}`
     };
   }
+
+  await sendEmailAlert(cheapFlights, env, now);
 
   return {
     notified: true,

@@ -11,6 +11,7 @@ RAPIDAPI_BASE_URL = "https://google-flights2.p.rapidapi.com/api/v1/searchFlights
 DEPARTURE_ID = "VIX"
 ARRIVAL_ID = "BSB"
 OUTBOUND_DATE = "2026-08-01"
+SECOND_OUTBOUND_DATE = "2026-08-02"
 TRAVEL_CLASS = "ECONOMY"
 ADULTS = "1"
 SHOW_HIDDEN = "1"
